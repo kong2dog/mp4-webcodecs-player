@@ -31,8 +31,23 @@ const props = defineProps({
 const emit = defineEmits(["ended", "ready"]);
 
 const canvasRef = ref(null);
-const { init, load, seek, play, pause, isPlaying, isLoading, currentTime, isEnded } =
-  usePlayer(canvasRef);
+const {
+  init,
+  load,
+  seek,
+  play,
+  pause,
+  isPlaying,
+  isLoading,
+  currentTime,
+  isEnded,
+  volume,
+  isMuted,
+  playbackRate,
+  setVolume,
+  toggleMute,
+  setPlaybackRate,
+} = usePlayer(canvasRef);
 
 watch(isEnded, (val) => {
   if (val) {
@@ -47,6 +62,9 @@ onMounted(async () => {
   }
   emit("ready");
 });
+
+// Sync volume and rate changes if needed, but since they are reactive from usePlayer,
+// and we will control them via refs exposed to parent, we might just need to expose them.
 
 watch(
   () => props.src,
@@ -75,5 +93,12 @@ defineExpose({
   pause,
   seek,
   load,
+  setVolume,
+  toggleMute,
+  setPlaybackRate,
+  volume,
+  isMuted,
+  playbackRate,
+  currentTime,
 });
 </script>

@@ -98,14 +98,71 @@
           </div>
 
           <div class="flex items-center space-x-4">
+            <!-- Speed Control -->
+            <div class="relative">
+              <button
+                @click="showSpeedMenu = !showSpeedMenu"
+                class="text-white/70 hover:text-white transition-colors text-sm font-mono w-12 text-center"
+              >
+                {{ playbackRate }}x
+              </button>
+              <div
+                v-if="showSpeedMenu"
+                class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-black/90 rounded-lg p-1 flex flex-col gap-1 min-w-[60px]"
+              >
+                <button
+                  v-for="rate in [0.5, 1.0, 1.5, 2.0]"
+                  :key="rate"
+                  @click="
+                    playbackRate = rate;
+                    showSpeedMenu = false;
+                  "
+                  class="px-2 py-1 text-xs hover:bg-white/20 rounded"
+                  :class="
+                    playbackRate === rate
+                      ? 'text-blue-400 font-bold'
+                      : 'text-white/70'
+                  "
+                >
+                  {{ rate }}x
+                </button>
+              </div>
+            </div>
+
+            <!-- Volume Control -->
+            <div class="flex items-center space-x-2 group">
+              <button
+                @click="isMuted = !isMuted"
+                class="text-white/70 hover:text-white transition-colors w-6"
+              >
+                <i
+                  class="fas"
+                  :class="
+                    isMuted || globalVolume === 0
+                      ? 'fa-volume-mute'
+                      : 'fa-volume-high'
+                  "
+                ></i>
+              </button>
+              <div
+                class="w-0 overflow-hidden group-hover:w-20 transition-all duration-300"
+              >
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  v-model.number="globalVolume"
+                  class="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+            </div>
+
             <div
               class="text-xs text-white/50 px-2 py-1 border border-white/10 rounded"
             >
               Queue: {{ playlist.length }} | Next: {{ nextVideoTitle }}
             </div>
-            <button class="text-white/70 hover:text-white transition-colors">
-              <i class="fas fa-volume-high"></i>
-            </button>
             <button class="text-white/70 hover:text-white transition-colors">
               <i class="fas fa-expand"></i>
             </button>
@@ -165,7 +222,11 @@ import MP4Box from "mp4box";
 
 const hasInteracted = ref(false);
 
-const playlist = ["/4.mp4", "/2.mp4", "/3.mp4"];
+const playlist = [
+  { url: "/1.mp4", duration: 300 },
+  { url: "/2.mp4", duration: 300 },
+  { url: "/3.mp4", duration: 300 },
+];
 
 // 状态
 const currentPlaylistIndex = ref(0);
@@ -173,9 +234,8 @@ const activePlayerIndex = ref(0); // 0 or 1
 const isPlaying = ref(true);
 
 // 元数据
-const videoDurations = ref(playlist.map(() => 0)); // 每个视频的时长
 const totalDuration = computed(() =>
-  videoDurations.value.reduce((a, b) => a + b, 0)
+  playlist.reduce((acc, item) => acc + item.duration, 0)
 );
 
 // 播放进度
@@ -183,8 +243,14 @@ const globalCurrentTime = ref(0);
 const progressBarRef = ref(null);
 const isDragging = ref(false);
 
+// 音量与倍速
+const globalVolume = ref(1.0);
+const isMuted = ref(false);
+const playbackRate = ref(1.0);
+const showSpeedMenu = ref(false);
+
 // 两个播放器对应的源
-const playerSources = ref([playlist[0], playlist[1]]);
+const playerSources = ref([playlist[0].url, playlist[1].url]);
 
 const player0 = ref(null);
 const player1 = ref(null);
@@ -193,44 +259,29 @@ const activePlayerRef = computed(() =>
   activePlayerIndex.value === 0 ? player0.value : player1.value
 );
 
+// Watchers for Volume and Rate
+watch([globalVolume, isMuted], () => {
+  // Sync to all players (or just active one? usually all)
+  if (player0.value) {
+    player0.value.setVolume(globalVolume.value);
+    if (isMuted.value !== player0.value.isMuted) player0.value.toggleMute();
+  }
+  if (player1.value) {
+    player1.value.setVolume(globalVolume.value);
+    if (isMuted.value !== player1.value.isMuted) player1.value.toggleMute();
+  }
+});
+
+watch(playbackRate, (val) => {
+  if (player0.value) player0.value.setPlaybackRate(val);
+  if (player1.value) player1.value.setPlaybackRate(val);
+});
+
 // 更新全局时间循环
 let timeUpdateInterval = null;
 
-// 获取视频时长
-async function fetchDurations() {
-  for (let i = 0; i < playlist.length; i++) {
-    const url = playlist[i];
-    try {
-      // Fetch 头部
-      // 对于本地文件，Vite 开发服务器支持 Range 请求，但可能不稳定
-      // 我们先尝试下载前 1MB，通常足够包含 moov
-      const response = await fetch(url, {
-        headers: { Range: "bytes=0-1000000" },
-      });
-      const buffer = await response.arrayBuffer();
-      buffer.fileStart = 0;
-
-      const mp4box = MP4Box.createFile();
-
-      await new Promise((resolve) => {
-        mp4box.onReady = (info) => {
-          videoDurations.value[i] = info.duration / info.timescale;
-          resolve();
-        };
-        mp4box.onError = (e) => {
-          console.error("MP4Box Error", e);
-          resolve();
-        };
-        mp4box.appendBuffer(buffer);
-        mp4box.flush();
-      });
-    } catch (e) {
-      console.error(`Failed to fetch duration for ${url}`, e);
-      // Fallback: 默认 60s
-      if (videoDurations.value[i] === 0) videoDurations.value[i] = 60;
-    }
-  }
-}
+// 无需动态获取时长，直接使用配置
+// async function fetchDurations() { ... }
 
 function updateGlobalTime() {
   if (isDragging.value || !activePlayerRef.value) return;
@@ -238,7 +289,7 @@ function updateGlobalTime() {
   // 计算当前视频之前的总时长
   let previousDuration = 0;
   for (let i = 0; i < currentPlaylistIndex.value; i++) {
-    previousDuration += videoDurations.value[i];
+    previousDuration += playlist[i].duration;
   }
 
   // 当前播放器的本地时间
@@ -297,8 +348,8 @@ async function performGlobalSeek(targetTime) {
   let targetIndex = 0;
   let localSeekTime = 0;
 
-  for (let i = 0; i < videoDurations.value.length; i++) {
-    const dur = videoDurations.value[i];
+  for (let i = 0; i < playlist.length; i++) {
+    const dur = playlist[i].duration;
     if (targetTime < accumulated + dur) {
       targetIndex = i;
       localSeekTime = targetTime - accumulated;
@@ -309,8 +360,8 @@ async function performGlobalSeek(targetTime) {
 
   // 如果超出范围，定位到最后一个视频末尾
   if (targetTime >= totalDuration.value) {
-    targetIndex = videoDurations.value.length - 1;
-    localSeekTime = videoDurations.value[targetIndex];
+    targetIndex = playlist.length - 1;
+    localSeekTime = playlist[targetIndex].duration;
   }
 
   console.log(
@@ -324,25 +375,15 @@ async function performGlobalSeek(targetTime) {
     currentPlaylistIndex.value = targetIndex;
 
     // 切换播放器逻辑
-    // 重置当前播放器，准备加载新视频
-    // 这里我们为了简化 Seek 逻辑，始终使用 activePlayerIndex (或切换它)
     // 策略：重置 activePlayerIndex 的源为目标视频，并 seek
 
-    playerSources.value[activePlayerIndex.value] = playlist[targetIndex];
+    playerSources.value[activePlayerIndex.value] = playlist[targetIndex].url;
 
     // 预加载下一个
     const nextIdx = (targetIndex + 1) % playlist.length;
     const otherPlayerIndex = activePlayerIndex.value === 0 ? 1 : 0;
-    playerSources.value[otherPlayerIndex] = playlist[nextIdx];
+    playerSources.value[otherPlayerIndex] = playlist[nextIdx].url;
 
-    // 等待加载完成并 seek (需要一点延迟或者监听 ready)
-    // 这里我们只能乐观地调用 load 然后 seek
-    // 注意：load 是异步的（在 worker 里），seek 也是。
-    // 我们在 SinglePlayer 里暴露 load 和 seek。
-
-    // 由于 SinglePlayer 监听到 src 变化会自动 load。
-    // 我们需要等待 load 触发 fetch 后再 seek。
-    // 简单 hack: setTimeout
     setTimeout(() => {
       if (activePlayerRef.value) {
         activePlayerRef.value.seek(localSeekTime);
@@ -364,7 +405,6 @@ const nextVideoTitle = computed(() => {
 
 function startExperience() {
   hasInteracted.value = true;
-  fetchDurations(); // 开始获取时长
   timeUpdateInterval = setInterval(updateGlobalTime, 100);
 }
 
@@ -392,8 +432,16 @@ function handleVideoEnded(playerIndex) {
   activePlayerIndex.value = nextActivePlayer;
 
   // 3. 为刚刚结束的那个播放器加载下下个视频（预加载）
+  // 优化：这实际上是“后加载”。更好的预加载应该在播放中途进行？
+  // 但对于连续播放，只要 V(n+1) 在 V(n) 播放期间加载完成即可。
+  // 我们当前的机制是：V(n) 开始播放时，P(active) 播放 V(n)。
+  // 此时 P(inactive) 应该已经加载好 V(n+1)。
+  // 当 V(n) 结束，我们切换 active -> P(inactive)，它现在播放 V(n+1)。
+  // 然后我们让 P(old_active) 加载 V(n+2)。
+  // 所以逻辑是对的。问题是 V(n+2) 加载是否足够快？或者 V(n+1) 是否在 V(n) 播放期间一直保持 ready？
+
   const preloadIndex = (nextPlaylistIndex + 1) % playlist.length;
-  playerSources.value[playerIndex] = playlist[preloadIndex];
+  playerSources.value[playerIndex] = playlist[preloadIndex].url;
 
   // 4. 确保新的活跃播放器开始播放
   // (SinglePlayer 的 active prop watch 会处理，但为了保险)
@@ -407,8 +455,8 @@ function jumpTo(index) {
   // 简单实现：强制重置
   currentPlaylistIndex.value = index;
   activePlayerIndex.value = 0;
-  playerSources.value[0] = playlist[index];
-  playerSources.value[1] = playlist[(index + 1) % playlist.length];
+  playerSources.value[0] = playlist[index].url;
+  playerSources.value[1] = playlist[(index + 1) % playlist.length].url;
 }
 
 onMounted(() => {
