@@ -35,6 +35,13 @@ export function usePlayer(canvasRef) {
    * 创建 Worker 和 Audio 元素
    */
   async function init() {
+    // 检查 WebCodecs 支持
+    if (!("VideoDecoder" in window)) {
+      console.error("WebCodecs API is not supported. HTTPS is required.");
+      alert("当前环境不支持 WebCodecs API。请使用 HTTPS 访问或 localhost。");
+      // return; // 允许部分初始化以显示 UI，但视频无法播放
+    }
+
     // 初始化 Audio Element
     audioEl = new Audio();
     audioEl.crossOrigin = "anonymous";

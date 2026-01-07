@@ -75,6 +75,13 @@ function reset() {
  * 初始化 WebCodecs 视频解码器
  */
 function initializeDecoders() {
+  if (typeof VideoDecoder === "undefined") {
+    console.error(
+      "WebCodecs API (VideoDecoder) is not supported in this environment. Please ensure you are using a Secure Context (HTTPS) or a supported browser."
+    );
+    return;
+  }
+
   // 视频解码器
   videoDecoder = new VideoDecoder({
     output: (videoFrame) => {
