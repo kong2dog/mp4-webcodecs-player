@@ -7,7 +7,7 @@ let videoTrack = null;
 let abortController = null;
 
 let fileBuffer = null;
-let seekTargetTime = -1; // Microseconds
+let seekTargetTime = -1; // 微秒
 
 // 配置
 const CHUNK_SIZE = 1024 * 1024; // 1MB 每次读取
@@ -48,6 +48,9 @@ self.onmessage = async (e) => {
   }
 };
 
+/**
+ * 重置所有状态，清理资源
+ */
 function reset() {
   if (abortController) {
     abortController.abort();
@@ -68,12 +71,15 @@ function reset() {
   initializeDecoders();
 }
 
+/**
+ * 初始化 WebCodecs 视频解码器
+ */
 function initializeDecoders() {
   // 视频解码器
   videoDecoder = new VideoDecoder({
     output: (videoFrame) => {
       // 过滤 Seek 之前的帧
-      // 容差 10ms (10000us)
+      // 容差 10ms (10000us)，防止浮点数精度问题导致的丢帧
       if (
         seekTargetTime !== -1 &&
         videoFrame.timestamp < seekTargetTime - 10000
@@ -101,6 +107,11 @@ function initializeDecoders() {
   });
 }
 
+/**
+ * 开始下载视频文件
+ * 目前策略是下载整个文件到内存，适用于中短视频
+ * 对于长视频，应实现 Range 请求的分块下载
+ */
 async function startFetch(url) {
   reset(); // 确保清理旧状态
 
@@ -128,6 +139,9 @@ async function startFetch(url) {
   }
 }
 
+/**
+ * 创建 MP4Box 实例并配置事件
+ */
 function createMP4Box() {
   mp4boxfile = MP4Box.createFile();
   mp4boxfile.onError = (e) => console.error("MP4Box Error:", e);
@@ -155,7 +169,8 @@ function createMP4Box() {
         codedHeight: videoTrack.video.height,
       };
 
-      // 获取 avcC box 作为 description
+      // 获取 avcC box 作为 description (Extra Data / Magic Cookie)
+      // 这是 H.264 解码所必需的 SPS/PPS 信息
       const trak = mp4boxfile.getTrackById(videoTrack.id);
       for (const entry of trak.mdia.minf.stbl.stsd.entries) {
         if (entry.avcC) {
@@ -193,6 +208,7 @@ function createMP4Box() {
       for (const sample of samples) {
         const type = sample.is_sync ? "key" : "delta";
 
+        // 构建 EncodedVideoChunk，这是 WebCodecs 的输入
         const chunk = new EncodedVideoChunk({
           type: type,
           timestamp: (sample.cts * 1000000) / sample.timescale,
@@ -206,16 +222,20 @@ function createMP4Box() {
   };
 }
 
+/**
+ * 执行 Seek 操作
+ * @param {number} timeSec - 目标时间（秒）
+ */
 function performSeek(timeSec) {
   if (!mp4boxfile || !fileBuffer) return;
 
   // Set filter target (convert to microseconds)
   seekTargetTime = timeSec * 1000000;
 
-  // Reset decoders
+  // Reset decoders to clear internal buffers
   videoDecoder.reset();
 
-  // Re-configure
+  // Re-configure decoder
   if (videoTrack) {
     const config = {
       codec: videoTrack.codec,
@@ -237,7 +257,7 @@ function performSeek(timeSec) {
     videoDecoder.configure(config);
   }
 
-  // Seek MP4Box
+  // Seek MP4Box (use 'true' for exact seek if supported, or nearest keyframe)
   mp4boxfile.seek(timeSec, true);
   mp4boxfile.start();
 }

@@ -1,6 +1,11 @@
 import { ref, onUnmounted, shallowRef } from "vue";
 import MP4Worker from "../workers/mp4-worker.js?worker";
 
+/**
+ * 播放器核心逻辑 Hook
+ * 负责协调 Web Worker (视频解码) 和 HTMLAudioElement (音频播放)
+ * @param {Ref<HTMLCanvasElement>} canvasRef - 渲染视频的 Canvas 引用
+ */
 export function usePlayer(canvasRef) {
   const isPlaying = ref(false);
   const isLoading = ref(false);
@@ -25,6 +30,10 @@ export function usePlayer(canvasRef) {
   let startSeekTime = -1;
   let autoPlayAfterSeek = false;
 
+  /**
+   * 初始化播放器
+   * 创建 Worker 和 Audio 元素
+   */
   async function init() {
     // 初始化 Audio Element
     audioEl = new Audio();
@@ -46,6 +55,9 @@ export function usePlayer(canvasRef) {
     worker.postMessage({ type: "initialize" });
   }
 
+  /**
+   * 处理 Worker 返回的消息
+   */
   function handleWorkerMessage(e) {
     const { type, frame, info } = e.data;
 
@@ -53,7 +65,7 @@ export function usePlayer(canvasRef) {
       duration.value = info.duration;
       isEnded.value = false;
 
-      // Auto seek if requested
+      // 如果有预设的 Seek 目标（例如跨视频切换时）
       if (startSeekTime >= 0) {
         console.log(`Auto seeking to ${startSeekTime}s`);
         seek(startSeekTime);
@@ -66,13 +78,7 @@ export function usePlayer(canvasRef) {
         autoPlayAfterSeek = false;
       }
     } else if (type === "videoFrame") {
-      // 收到新帧
-      // 如果正在 seek (isLoading)，这可能是第一帧
-      // 我们应该直接渲染它以更新画面
-
-      // 简单的去重/顺序检查：如果新帧比队列里最后一帧还老（乱序？），或者比当前 currentTime 还要老很多？
-      // 实际上 worker 已经过滤了。
-
+      // 收到新解码的视频帧
       videoQueue.push(frame);
 
       if (isLoading.value) {
@@ -80,16 +86,9 @@ export function usePlayer(canvasRef) {
         isLoading.value = false;
         isReady = true;
 
-        // 立即渲染这一帧，不要等 renderLoop
+        // 立即渲染这一帧，不要等 renderLoop，以消除 Seek 延迟
         const firstFrame = videoQueue[0]; // Peek
-        // 注意：如果直接渲染，renderLoop 下次也会渲染它。
-        // 关键是 seek 后如果不播放，renderLoop 可能不会运行或者不会消费。
-
         drawFrame(firstFrame);
-
-        // 如果是暂停状态，我们不需要保留它在队列里？
-        // 不，如果用户点播放，我们需要它。
-        // 但是 drawFrame 不会 close frame。
       }
 
       // 优化：只需 1 帧即可显示首帧 (Pre-render)
@@ -104,8 +103,10 @@ export function usePlayer(canvasRef) {
     }
   }
 
-  // 不再需要 scheduleAudio，由 audioEl 自动处理
-
+  /**
+   * 渲染循环
+   * 负责同步视频帧到音频时间轴
+   */
   function renderLoop() {
     if (!isPlaying.value) return;
 
@@ -113,24 +114,22 @@ export function usePlayer(canvasRef) {
     const now = audioEl.currentTime;
     currentTime.value = now;
 
-    // 检测播放结束 (audioEl 会触发 ended，但我们这里也检查一下)
+    // 检测播放结束
     if (duration.value > 0 && now >= duration.value) {
       // isEnded handled by audio event
     }
 
     // 渲染匹配的帧
     // 我们需要找到 timestamp <= now * 1e6 的最新一帧
-
     let frameToRender = null;
 
     // 策略：丢弃所有过期的帧，保留最接近当前时间的一帧
     // 如果没有新的过期帧，保持上一帧？或者如果不丢弃，videoQueue 会堆积。
-
     while (videoQueue.length > 0) {
       const frame = videoQueue[0];
       const frameTime = frame.timestamp / 1e6;
 
-      // 容差：允许 30ms 误差
+      // 容差：允许 30ms 误差，避免频繁丢帧
       if (frameTime <= now + 0.03) {
         if (frameToRender) frameToRender.close();
         frameToRender = videoQueue.shift();
@@ -147,6 +146,10 @@ export function usePlayer(canvasRef) {
     animationFrameId = requestAnimationFrame(renderLoop);
   }
 
+  /**
+   * 将 VideoFrame 绘制到 Canvas
+   * 实现 Letterboxing (Contain) 逻辑
+   */
   function drawFrame(frame) {
     if (!canvasRef.value) return;
     const canvas = canvasRef.value;
@@ -167,33 +170,39 @@ export function usePlayer(canvasRef) {
     // 计算 contain 模式的绘制参数 (Letterboxing)
     const canvasAspect = canvas.width / canvas.height;
     const frameAspect = frame.displayWidth / frame.displayHeight;
-    
+
     let drawWidth, drawHeight, offsetX, offsetY;
-    
+
     if (canvasAspect > frameAspect) {
-        // Canvas 更宽，以高度为基准，左右留黑边
-        drawHeight = canvas.height;
-        drawWidth = canvas.height * frameAspect;
-        offsetX = (canvas.width - drawWidth) / 2;
-        offsetY = 0;
+      // Canvas 更宽，以高度为基准，左右留黑边
+      drawHeight = canvas.height;
+      drawWidth = canvas.height * frameAspect;
+      offsetX = (canvas.width - drawWidth) / 2;
+      offsetY = 0;
     } else {
-        // Canvas 更高，以宽度为基准，上下留黑边
-        drawWidth = canvas.width;
-        drawHeight = canvas.width / frameAspect;
-        offsetX = 0;
-        offsetY = (canvas.height - drawHeight) / 2;
+      // Canvas 更高，以宽度为基准，上下留黑边
+      drawWidth = canvas.width;
+      drawHeight = canvas.width / frameAspect;
+      offsetX = 0;
+      offsetY = (canvas.height - drawHeight) / 2;
     }
 
     // 清除画布（必须，因为可能留有黑边）
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     // 使用高质量缩放
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    ctx.imageSmoothingQuality = "high";
 
     ctx.drawImage(frame, offsetX, offsetY, drawWidth, drawHeight);
   }
 
+  /**
+   * 加载视频
+   * @param {string} url - 视频地址
+   * @param {number} startTime - 起始播放时间 (秒)
+   * @param {boolean} shouldAutoPlay - 加载完成后是否自动播放
+   */
   function load(url, startTime = -1, shouldAutoPlay = false) {
     isLoading.value = true;
     isReady = false;
@@ -216,14 +225,16 @@ export function usePlayer(canvasRef) {
     worker.postMessage({ type: "fetch", url });
   }
 
+  /**
+   * 跳转到指定时间
+   * @param {number} time - 目标时间 (秒)
+   */
   function seek(time) {
     if (!worker || !audioEl) return;
 
     // 暂停播放，清理队列
     videoQueue.forEach((f) => f.close());
     videoQueue.length = 0;
-    // isReady = false; // Seek 时不要设为 false，否则会黑屏
-    // isLoading.value = true; // 可选
 
     // Seek 音频
     audioEl.currentTime = time;
@@ -233,6 +244,9 @@ export function usePlayer(canvasRef) {
     worker.postMessage({ type: "seek", time: time });
   }
 
+  /**
+   * 开始播放
+   */
   async function play() {
     if (audioEl && audioEl.paused) {
       try {
@@ -245,6 +259,9 @@ export function usePlayer(canvasRef) {
     }
   }
 
+  /**
+   * 暂停播放
+   */
   function pause() {
     if (audioEl && !audioEl.paused) {
       audioEl.pause();

@@ -1,10 +1,9 @@
 <template>
-  <div class="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
-    <canvas 
-      ref="canvasRef" 
-      class="w-full h-full object-contain"
-    ></canvas>
-    
+  <div
+    class="relative w-full h-full bg-black flex items-center justify-center overflow-hidden"
+  >
+    <canvas ref="canvasRef" class="w-full h-full object-contain"></canvas>
+
     <!-- Loading Spinner -->
     <div
       v-if="isLoading"
@@ -29,6 +28,7 @@ const props = defineProps({
 const emit = defineEmits(["ended", "ready"]);
 
 const canvasRef = ref(null);
+// 使用 usePlayer 组合式函数管理播放器逻辑
 const {
   init,
   load,
@@ -47,6 +47,7 @@ const {
   setPlaybackRate,
 } = usePlayer(canvasRef);
 
+// 监听播放结束事件
 watch(isEnded, (val) => {
   if (val) {
     emit("ended");
@@ -61,33 +62,39 @@ onMounted(async () => {
   emit("ready");
 });
 
-// Sync volume and rate changes if needed, but since they are reactive from usePlayer,
-// and we will control them via refs exposed to parent, we might just need to expose them.
-
+// 待处理的 Seek 操作，用于跨视频切换时的平滑过渡
 const pendingSeekTime = ref(-1);
 const pendingAutoPlay = ref(false);
 
+/**
+ * 设置待处理的 Seek 时间和自动播放意图
+ * 当 src 变化触发 load 时，会使用这些参数
+ */
 function setPendingSeek(t, autoPlay = false) {
   pendingSeekTime.value = t;
   pendingAutoPlay.value = autoPlay;
 }
 
-watch(() => props.src, (newSrc) => {
-  if (newSrc) {
-    load(newSrc, pendingSeekTime.value, pendingAutoPlay.value);
-    pendingSeekTime.value = -1; // Reset
-    pendingAutoPlay.value = false;
+// 监听源变化，自动加载新视频
+watch(
+  () => props.src,
+  (newSrc) => {
+    if (newSrc) {
+      load(newSrc, pendingSeekTime.value, pendingAutoPlay.value);
+      pendingSeekTime.value = -1; // Reset
+      pendingAutoPlay.value = false;
+    }
   }
-});
+);
 
+// 监听激活状态，控制播放/暂停
 watch(
   () => props.active,
   (isActive) => {
     if (isActive) {
       play();
     } else {
-      // 即使不活跃，我们也可能想保持暂停状态，或者在后台预加载
-      // 这里如果变为非活跃，就暂停，节省资源
+      // 当变为非活跃状态时暂停，节省资源
       pause();
     }
   }
