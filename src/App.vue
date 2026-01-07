@@ -1,6 +1,9 @@
 <template>
   <div
+    ref="appContainer"
     class="relative w-screen h-screen bg-black overflow-hidden font-sans select-none"
+    @mousemove="handleMouseMove"
+    @mouseleave="showControls = false"
   >
     <!-- Players Layer -->
     <div class="absolute inset-0 z-0">
@@ -39,168 +42,194 @@
 
     <!-- UI Overlay Layer -->
     <div
-      class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-6 bg-gradient-to-b from-black/50 via-transparent to-black/80"
+      class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between"
     >
       <!-- Header -->
-      <div class="flex justify-between items-start pointer-events-auto">
-        <div
-          class="bg-white/10 backdrop-blur-md px-4 py-2 rounded-full text-xs font-mono text-white/80"
-        ></div>
+      <div
+        class="p-6 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-500"
+        :class="{ 'opacity-0': !showControls, 'opacity-100': showControls }"
+      >
+        <div class="flex justify-between items-start pointer-events-auto">
+          <div>
+            <h1 class="text-2xl font-bold text-white tracking-tight">
+              <i class="fas fa-film text-blue-500 mr-2"></i>WebCodecs Player
+            </h1>
+            <p class="text-white/60 text-sm mt-1">高性能 MP4 无缝播放器</p>
+          </div>
+          <div
+            class="bg-white/10 backdrop-blur-md px-4 py-2 rounded-full text-xs font-mono text-white/80"
+          >
+            CPU Usage: Worker Safe
+          </div>
+        </div>
       </div>
 
       <!-- Controls -->
-      <div class="pointer-events-auto space-y-4">
-        <!-- Progress Bar -->
-        <div
-          ref="progressBarRef"
-          class="h-1 bg-white/20 rounded-full cursor-pointer group hover:h-2 transition-all"
-          @mousedown="startDrag"
-        >
+      <div
+        class="p-6 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-500"
+        :class="{ 'opacity-0': !showControls, 'opacity-100': showControls }"
+      >
+        <div class="pointer-events-auto space-y-4">
+          <!-- Progress Bar -->
           <div
-            class="h-full bg-blue-500 relative"
-            :style="{ width: `${(globalCurrentTime / totalDuration) * 100}%` }"
+            ref="progressBarRef"
+            class="h-1 bg-white/20 rounded-full cursor-pointer group hover:h-2 transition-all"
+            @mousedown="startDrag"
           >
             <div
-              class="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg transform scale-0 group-hover:scale-100 transition-transform"
-            ></div>
-          </div>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-6">
-            <button
-              @click="togglePlay"
-              class="text-white hover:text-blue-400 transition-colors text-2xl w-8 h-8 flex items-center justify-center"
+              class="h-full bg-blue-500 relative"
+              :style="{
+                width: `${(globalCurrentTime / totalDuration) * 100}%`,
+              }"
             >
-              <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
-            </button>
-            <button class="text-white/70 hover:text-white transition-colors">
-              <i class="fas fa-backward-step"></i>
-            </button>
-            <button class="text-white/70 hover:text-white transition-colors">
-              <i class="fas fa-forward-step"></i>
-            </button>
-
-            <div class="text-xs font-mono text-white/60">
-              <span class="text-white">{{
-                formatTime(globalCurrentTime)
-              }}</span>
-              / {{ formatTime(totalDuration) }}
+              <div
+                class="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg transform scale-0 group-hover:scale-100 transition-transform"
+              ></div>
             </div>
           </div>
 
-          <div class="flex items-center space-x-4">
-            <!-- Speed Control -->
-            <div class="relative">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-6">
               <button
-                @click="showSpeedMenu = !showSpeedMenu"
-                class="text-white/70 hover:text-white transition-colors text-sm font-mono w-12 text-center"
+                @click="togglePlay"
+                class="text-white hover:text-blue-400 transition-colors text-2xl w-8 h-8 flex items-center justify-center"
               >
-                {{ playbackRate }}x
+                <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
               </button>
-              <div
-                v-if="showSpeedMenu"
-                class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-black/90 rounded-lg p-1 flex flex-col gap-1 min-w-[60px]"
-              >
-                <button
-                  v-for="rate in [0.5, 1.0, 1.5, 2.0]"
-                  :key="rate"
-                  @click="
-                    playbackRate = rate;
-                    showSpeedMenu = false;
-                  "
-                  class="px-2 py-1 text-xs hover:bg-white/20 rounded"
-                  :class="
-                    playbackRate === rate
-                      ? 'text-blue-400 font-bold'
-                      : 'text-white/70'
-                  "
-                >
-                  {{ rate }}x
-                </button>
+              <button class="text-white/70 hover:text-white transition-colors">
+                <i class="fas fa-backward-step"></i>
+              </button>
+              <button class="text-white/70 hover:text-white transition-colors">
+                <i class="fas fa-forward-step"></i>
+              </button>
+
+              <div class="text-xs font-mono text-white/60">
+                <span class="text-white">{{
+                  formatTime(globalCurrentTime)
+                }}</span>
+                / {{ formatTime(totalDuration) }}
               </div>
             </div>
 
-            <!-- Volume Control -->
-            <div class="flex items-center space-x-2 group">
+            <div class="flex items-center space-x-4">
+              <!-- Speed Control -->
+              <div class="relative">
+                <button
+                  @click="showSpeedMenu = !showSpeedMenu"
+                  class="text-white/70 hover:text-white transition-colors text-sm font-mono w-12 text-center"
+                >
+                  {{ playbackRate }}x
+                </button>
+                <div
+                  v-if="showSpeedMenu"
+                  class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-black/90 rounded-lg p-1 flex flex-col gap-1 min-w-[60px]"
+                >
+                  <button
+                    v-for="rate in [0.5, 1.0, 1.5, 2.0]"
+                    :key="rate"
+                    @click="
+                      playbackRate = rate;
+                      showSpeedMenu = false;
+                    "
+                    class="px-2 py-1 text-xs hover:bg-white/20 rounded"
+                    :class="
+                      playbackRate === rate
+                        ? 'text-blue-400 font-bold'
+                        : 'text-white/70'
+                    "
+                  >
+                    {{ rate }}x
+                  </button>
+                </div>
+              </div>
+
+              <!-- Volume Control -->
+              <div class="flex items-center space-x-2 group">
+                <button
+                  @click="isMuted = !isMuted"
+                  class="text-white/70 hover:text-white transition-colors w-6"
+                >
+                  <i
+                    class="fas"
+                    :class="
+                      isMuted || globalVolume === 0
+                        ? 'fa-volume-mute'
+                        : 'fa-volume-high'
+                    "
+                  ></i>
+                </button>
+                <div
+                  class="w-0 overflow-hidden group-hover:w-20 transition-all duration-300"
+                >
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    v-model.number="globalVolume"
+                    class="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div
+                class="text-xs text-white/50 px-2 py-1 border border-white/10 rounded"
+              >
+                Queue: {{ playlist.length }} | Next: {{ nextVideoTitle }}
+              </div>
               <button
-                @click="isMuted = !isMuted"
-                class="text-white/70 hover:text-white transition-colors w-6"
+                @click="toggleFullscreen"
+                class="text-white/70 hover:text-white transition-colors"
               >
                 <i
                   class="fas"
-                  :class="
-                    isMuted || globalVolume === 0
-                      ? 'fa-volume-mute'
-                      : 'fa-volume-high'
-                  "
+                  :class="isFullscreen ? 'fa-compress' : 'fa-expand'"
                 ></i>
               </button>
-              <div
-                class="w-0 overflow-hidden group-hover:w-20 transition-all duration-300"
-              >
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  v-model.number="globalVolume"
-                  class="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
             </div>
-
-            <div
-              class="text-xs text-white/50 px-2 py-1 border border-white/10 rounded"
-            >
-              Queue: {{ playlist.length }} | Next: {{ nextVideoTitle }}
-            </div>
-            <button class="text-white/70 hover:text-white transition-colors">
-              <i class="fas fa-expand"></i>
-            </button>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Playlist Overlay (Optional, simplified) -->
-    <div
-      class="absolute top-20 right-6 w-64 bg-black/80 backdrop-blur-xl border border-white/10 rounded-xl p-4 pointer-events-auto transform transition-transform translate-x-full hover:translate-x-0 opacity-0 hover:opacity-100 duration-300"
-    >
-      <h3
-        class="text-white font-bold mb-3 text-sm border-b border-white/10 pb-2"
+      <!-- Playlist Overlay (Optional, simplified) -->
+      <div
+        class="absolute top-20 right-6 w-64 bg-black/80 backdrop-blur-xl border border-white/10 rounded-xl p-4 pointer-events-auto transform transition-transform translate-x-full hover:translate-x-0 opacity-0 hover:opacity-100 duration-300"
       >
-        播放列表
-      </h3>
-      <ul class="space-y-2">
-        <li
-          v-for="(url, index) in playlist"
-          :key="index"
-          class="text-xs p-2 rounded cursor-pointer transition-colors truncate"
-          :class="
-            index === currentPlaylistIndex
-              ? 'bg-blue-600 text-white'
-              : 'text-white/60 hover:bg-white/10'
-          "
-          @click="jumpTo(index)"
+        <h3
+          class="text-white font-bold mb-3 text-sm border-b border-white/10 pb-2"
         >
-          Video {{ index + 1 }}
-        </li>
-      </ul>
-    </div>
-    <!-- Start Overlay -->
-    <div
-      v-if="!hasInteracted"
-      class="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm cursor-pointer"
-      @click="startExperience"
-    >
-      <div class="text-center">
-        <div
-          class="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse shadow-lg shadow-blue-500/50"
-        >
-          <i class="fas fa-play text-3xl text-white ml-1"></i>
+          播放列表
+        </h3>
+        <ul class="space-y-2">
+          <li
+            v-for="(url, index) in playlist"
+            :key="index"
+            class="text-xs p-2 rounded cursor-pointer transition-colors truncate"
+            :class="
+              index === currentPlaylistIndex
+                ? 'bg-blue-600 text-white'
+                : 'text-white/60 hover:bg-white/10'
+            "
+            @click="jumpTo(index)"
+          >
+            Video {{ index + 1 }}
+          </li>
+        </ul>
+      </div>
+      <!-- Start Overlay -->
+      <div
+        v-if="!hasInteracted"
+        class="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm cursor-pointer"
+        @click="startExperience"
+      >
+        <div class="text-center">
+          <div
+            class="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse shadow-lg shadow-blue-500/50"
+          >
+            <i class="fas fa-play text-3xl text-white ml-1"></i>
+          </div>
+          <p class="text-white/50">点击任意位置开始播放</p>
         </div>
-        <p class="text-white/50">点击任意位置开始播放</p>
       </div>
     </div>
   </div>
@@ -239,6 +268,10 @@ const globalVolume = ref(1.0);
 const isMuted = ref(false);
 const playbackRate = ref(1.0);
 const showSpeedMenu = ref(false);
+const isFullscreen = ref(false);
+const appContainer = ref(null);
+const showControls = ref(true);
+let controlsTimeout = null;
 
 // 两个播放器对应的源
 const playerSources = ref([playlist[0].url, playlist[1].url]);
@@ -389,6 +422,22 @@ async function performGlobalSeek(targetTime) {
   }
 }
 
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    appContainer.value.requestFullscreen().catch((err) => {
+      console.error(`Error attempting to enable fullscreen: ${err.message}`);
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener("fullscreenchange", () => {
+    isFullscreen.value = !!document.fullscreenElement;
+  });
+});
+
 const nextVideoTitle = computed(() => {
   const nextIdx = (currentPlaylistIndex.value + 1) % playlist.length;
   return `Video ${nextIdx + 1}`;
@@ -397,7 +446,31 @@ const nextVideoTitle = computed(() => {
 function startExperience() {
   hasInteracted.value = true;
   timeUpdateInterval = setInterval(updateGlobalTime, 100);
+  resetControlsTimeout();
 }
+
+function handleMouseMove() {
+  showControls.value = true;
+  resetControlsTimeout();
+}
+
+function resetControlsTimeout() {
+  if (controlsTimeout) clearTimeout(controlsTimeout);
+  if (isPlaying.value) {
+    controlsTimeout = setTimeout(() => {
+      showControls.value = false;
+    }, 3000);
+  }
+}
+
+watch(isPlaying, (val) => {
+  if (!val) {
+    showControls.value = true;
+    if (controlsTimeout) clearTimeout(controlsTimeout);
+  } else {
+    resetControlsTimeout();
+  }
+});
 
 function togglePlay() {
   isPlaying.value = !isPlaying.value;

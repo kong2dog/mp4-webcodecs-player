@@ -1,12 +1,10 @@
 <template>
-  <div
-    class="relative w-full h-full bg-black flex items-center justify-center overflow-hidden"
-  >
-    <canvas
-      ref="canvasRef"
-      class="max-w-full max-h-full object-contain"
+  <div class="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
+    <canvas 
+      ref="canvasRef" 
+      class="w-full h-full object-contain"
     ></canvas>
-
+    
     <!-- Loading Spinner -->
     <div
       v-if="isLoading"
@@ -74,16 +72,13 @@ function setPendingSeek(t, autoPlay = false) {
   pendingAutoPlay.value = autoPlay;
 }
 
-watch(
-  () => props.src,
-  (newSrc) => {
-    if (newSrc) {
-      load(newSrc, pendingSeekTime.value, pendingAutoPlay.value);
-      pendingSeekTime.value = -1; // Reset
-      pendingAutoPlay.value = false;
-    }
+watch(() => props.src, (newSrc) => {
+  if (newSrc) {
+    load(newSrc, pendingSeekTime.value, pendingAutoPlay.value);
+    pendingSeekTime.value = -1; // Reset
+    pendingAutoPlay.value = false;
   }
-);
+});
 
 watch(
   () => props.active,

@@ -149,17 +149,49 @@ export function usePlayer(canvasRef) {
 
   function drawFrame(frame) {
     if (!canvasRef.value) return;
-    const ctx = canvasRef.value.getContext("2d");
+    const canvas = canvasRef.value;
+    const ctx = canvas.getContext("2d");
 
-    if (
-      canvasRef.value.width !== frame.displayWidth ||
-      canvasRef.value.height !== frame.displayHeight
-    ) {
-      canvasRef.value.width = frame.displayWidth;
-      canvasRef.value.height = frame.displayHeight;
+    // 确保 Canvas 分辨率匹配其 CSS 显示尺寸（窗口大小）
+    // 使用 clientWidth/Height 获取容器实际像素大小
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const targetWidth = Math.floor(rect.width * dpr);
+    const targetHeight = Math.floor(rect.height * dpr);
+
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
     }
 
-    ctx.drawImage(frame, 0, 0);
+    // 计算 contain 模式的绘制参数 (Letterboxing)
+    const canvasAspect = canvas.width / canvas.height;
+    const frameAspect = frame.displayWidth / frame.displayHeight;
+    
+    let drawWidth, drawHeight, offsetX, offsetY;
+    
+    if (canvasAspect > frameAspect) {
+        // Canvas 更宽，以高度为基准，左右留黑边
+        drawHeight = canvas.height;
+        drawWidth = canvas.height * frameAspect;
+        offsetX = (canvas.width - drawWidth) / 2;
+        offsetY = 0;
+    } else {
+        // Canvas 更高，以宽度为基准，上下留黑边
+        drawWidth = canvas.width;
+        drawHeight = canvas.width / frameAspect;
+        offsetX = 0;
+        offsetY = (canvas.height - drawHeight) / 2;
+    }
+
+    // 清除画布（必须，因为可能留有黑边）
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 使用高质量缩放
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.drawImage(frame, offsetX, offsetY, drawWidth, drawHeight);
   }
 
   function load(url, startTime = -1, shouldAutoPlay = false) {
