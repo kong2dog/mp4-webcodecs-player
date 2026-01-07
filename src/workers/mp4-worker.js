@@ -3,12 +3,11 @@ import MP4Box from "mp4box";
 // 状态管理
 let mp4boxfile = null;
 let videoDecoder = null;
-let audioDecoder = null;
 let videoTrack = null;
-let audioTrack = null;
 let abortController = null;
 
 let fileBuffer = null;
+let seekTargetTime = -1; // Microseconds
 
 // 配置
 const CHUNK_SIZE = 1024 * 1024; // 1MB 每次读取
@@ -22,7 +21,19 @@ self.onmessage = async (e) => {
       break;
     case "fetch":
       if (url) {
+        // 必须重置之前的状态，防止上一个视频的解析干扰
+        if (mp4boxfile) {
+          mp4boxfile.flush();
+          mp4boxfile = null;
+        }
+        // 重置解码器配置状态，但不必销毁解码器实例（initializeDecoders 创建的）
+        // VideoDecoder.reset() 会清除所有待解码队列和配置
+        if (videoDecoder) videoDecoder.reset();
+
         fileBuffer = null;
+        seekTargetTime = -1;
+        videoTrack = null;
+
         startFetch(url);
       }
       break;
@@ -48,11 +59,6 @@ function reset() {
     videoDecoder = null;
   }
 
-  if (audioDecoder) {
-    if (audioDecoder.state !== "closed") audioDecoder.close();
-    audioDecoder = null;
-  }
-
   if (mp4boxfile) {
     mp4boxfile.flush();
     mp4boxfile = null;
@@ -66,6 +72,20 @@ function initializeDecoders() {
   // 视频解码器
   videoDecoder = new VideoDecoder({
     output: (videoFrame) => {
+      // 过滤 Seek 之前的帧
+      // 容差 10ms (10000us)
+      if (
+        seekTargetTime !== -1 &&
+        videoFrame.timestamp < seekTargetTime - 10000
+      ) {
+        videoFrame.close();
+        return;
+      }
+
+      // 一旦达到或超过目标时间，重置过滤（防止后续逻辑复杂化，虽然 timestamp < check 也够了）
+      // 但为了保险起见，我们不重置，因为我们只关心 >= seekTargetTime 的帧。
+      // 实际上，如果 B 帧导致输出顺序微调，严格 < 检查是安全的。
+
       // 发送解码后的视频帧到主线程
       self.postMessage(
         {
@@ -77,23 +97,6 @@ function initializeDecoders() {
     },
     error: (e) => {
       console.error("Video Decoder Error:", e);
-    },
-  });
-
-  // 音频解码器
-  audioDecoder = new AudioDecoder({
-    output: (audioData) => {
-      // 发送解码后的音频数据到主线程
-      self.postMessage(
-        {
-          type: "audioData",
-          data: audioData,
-        },
-        [audioData]
-      ); // Transferable
-    },
-    error: (e) => {
-      console.error("Audio Decoder Error:", e);
     },
   });
 }
@@ -125,64 +128,6 @@ async function startFetch(url) {
   }
 }
 
-function configureAudioDecoder(track) {
-  let codec = track.codec;
-
-  // WebCodecs 映射 PCM 格式
-  // MP4Box 通常返回 'alaw', 'ulaw' 或者 'twos', 'sowt', 'lpcm'
-  // WebCodecs 需要 'alaw' 或 'ulaw' 或 'pcm'
-  if (codec === "alaw" || codec === "pcma") {
-    codec = "alaw";
-  } else if (codec === "ulaw" || codec === "pcmu") {
-    codec = "ulaw";
-  } else if (codec === "twos" || codec === "sowt" || codec === "lpcm") {
-    codec = "pcm-s16";
-  }
-
-  const config = {
-    codec: codec,
-    numberOfChannels: track.audio.channel_count,
-    sampleRate: track.audio.sample_rate,
-  };
-
-  // Extract AAC description (esds)
-  // 修正：对于 alaw/ulaw，通常不需要 description。提供错误的 description 可能会导致配置失败。
-  // 只有当是 AAC (mp4a) 时才去提取 esds。
-  if (codec.startsWith("mp4a")) {
-    const trak = mp4boxfile.getTrackById(track.id);
-    if (
-      trak &&
-      trak.mdia &&
-      trak.mdia.minf &&
-      trak.mdia.minf.stbl &&
-      trak.mdia.minf.stbl.stsd
-    ) {
-      for (const entry of trak.mdia.minf.stbl.stsd.entries) {
-        if (
-          entry.esds &&
-          entry.esds.esd &&
-          entry.esds.esd.decoderConfigDescriptor &&
-          entry.esds.esd.decoderConfigDescriptor.decoderSpecificInfo
-        ) {
-          const descriptor =
-            entry.esds.esd.decoderConfigDescriptor.decoderSpecificInfo;
-          // data is a Uint8Array
-          config.description = descriptor.data;
-        }
-      }
-    }
-  }
-
-  // 如果是 PCM A-law，WebCodecs 可能不需要 description，但需要正确的 codec 字符串
-  console.log("Configuring Audio Decoder:", config);
-
-  try {
-    audioDecoder.configure(config);
-  } catch (e) {
-    console.error("Audio Decoder Config Error:", e);
-  }
-}
-
 function createMP4Box() {
   mp4boxfile = MP4Box.createFile();
   mp4boxfile.onError = (e) => console.error("MP4Box Error:", e);
@@ -192,6 +137,9 @@ function createMP4Box() {
     // 提取视频轨道
     videoTrack = info.videoTracks[0];
     if (videoTrack) {
+      // Reset seek target for initial play (start from 0 or wherever)
+      seekTargetTime = -1;
+
       mp4boxfile.setExtractionOptions(videoTrack.id, "video", {
         nbSamples: 1000,
       });
@@ -222,16 +170,6 @@ function createMP4Box() {
       }
 
       if (videoDecoder.state === "unconfigured") videoDecoder.configure(config);
-    }
-
-    // 提取音频轨道
-    audioTrack = info.audioTracks[0];
-    if (audioTrack) {
-      mp4boxfile.setExtractionOptions(audioTrack.id, "audio", {
-        nbSamples: 1000,
-      });
-      if (audioDecoder.state === "unconfigured")
-        configureAudioDecoder(audioTrack);
     }
 
     // 发送媒体信息回主线程
@@ -265,30 +203,17 @@ function createMP4Box() {
         if (videoDecoder.state === "configured") videoDecoder.decode(chunk);
       }
     }
-
-    if (audioTrack && track_id === audioTrack.id) {
-      for (const sample of samples) {
-        const type = sample.is_sync ? "key" : "delta";
-
-        const chunk = new EncodedAudioChunk({
-          type: type,
-          timestamp: (sample.cts * 1000000) / sample.timescale,
-          duration: (sample.duration * 1000000) / sample.timescale,
-          data: sample.data,
-        });
-
-        if (audioDecoder.state === "configured") audioDecoder.decode(chunk);
-      }
-    }
   };
 }
 
 function performSeek(timeSec) {
   if (!mp4boxfile || !fileBuffer) return;
 
+  // Set filter target (convert to microseconds)
+  seekTargetTime = timeSec * 1000000;
+
   // Reset decoders
   videoDecoder.reset();
-  audioDecoder.reset();
 
   // Re-configure
   if (videoTrack) {
@@ -310,10 +235,6 @@ function performSeek(timeSec) {
       }
     }
     videoDecoder.configure(config);
-  }
-
-  if (audioTrack) {
-    configureAudioDecoder(audioTrack);
   }
 
   // Seek MP4Box

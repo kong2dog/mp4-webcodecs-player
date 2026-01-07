@@ -43,17 +43,9 @@
     >
       <!-- Header -->
       <div class="flex justify-between items-start pointer-events-auto">
-        <div>
-          <h1 class="text-2xl font-bold text-white tracking-tight">
-            <i class="fas fa-film text-blue-500 mr-2"></i>WebCodecs Player
-          </h1>
-          <p class="text-white/60 text-sm mt-1">高性能 MP4 无缝播放器</p>
-        </div>
         <div
           class="bg-white/10 backdrop-blur-md px-4 py-2 rounded-full text-xs font-mono text-white/80"
-        >
-          CPU Usage: Worker Safe
-        </div>
+        ></div>
       </div>
 
       <!-- Controls -->
@@ -208,7 +200,6 @@
         >
           <i class="fas fa-play text-3xl text-white ml-1"></i>
         </div>
-        <h2 class="text-3xl font-bold text-white mb-2">进入沉浸式体验</h2>
         <p class="text-white/50">点击任意位置开始播放</p>
       </div>
     </div>
@@ -377,6 +368,11 @@ async function performGlobalSeek(targetTime) {
     // 切换播放器逻辑
     // 策略：重置 activePlayerIndex 的源为目标视频，并 seek
 
+    // 预设 Seek 时间
+    if (activePlayerRef.value) {
+      activePlayerRef.value.setPendingSeek(localSeekTime, isPlaying.value);
+    }
+
     playerSources.value[activePlayerIndex.value] = playlist[targetIndex].url;
 
     // 预加载下一个
@@ -384,12 +380,7 @@ async function performGlobalSeek(targetTime) {
     const otherPlayerIndex = activePlayerIndex.value === 0 ? 1 : 0;
     playerSources.value[otherPlayerIndex] = playlist[nextIdx].url;
 
-    setTimeout(() => {
-      if (activePlayerRef.value) {
-        activePlayerRef.value.seek(localSeekTime);
-        if (isPlaying.value) activePlayerRef.value.play();
-      }
-    }, 100);
+    // 无需 setTimeout，由 load(url, seekTime) 处理
   } else {
     // 同一个视频，直接 seek
     if (activePlayerRef.value) {

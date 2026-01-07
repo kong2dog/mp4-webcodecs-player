@@ -66,11 +66,21 @@ onMounted(async () => {
 // Sync volume and rate changes if needed, but since they are reactive from usePlayer,
 // and we will control them via refs exposed to parent, we might just need to expose them.
 
+const pendingSeekTime = ref(-1);
+const pendingAutoPlay = ref(false);
+
+function setPendingSeek(t, autoPlay = false) {
+  pendingSeekTime.value = t;
+  pendingAutoPlay.value = autoPlay;
+}
+
 watch(
   () => props.src,
   (newSrc) => {
     if (newSrc) {
-      load(newSrc);
+      load(newSrc, pendingSeekTime.value, pendingAutoPlay.value);
+      pendingSeekTime.value = -1; // Reset
+      pendingAutoPlay.value = false;
     }
   }
 );
@@ -96,6 +106,7 @@ defineExpose({
   setVolume,
   toggleMute,
   setPlaybackRate,
+  setPendingSeek,
   volume,
   isMuted,
   playbackRate,

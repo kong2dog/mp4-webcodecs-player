@@ -4,7 +4,7 @@ import vue from "@vitejs/plugin-vue";
 export default defineConfig({
   plugins: [vue()],
   server: {
-    port: 5666,
+    port: 5667,
     headers: {
       // Essential for SharedArrayBuffer / WebCodecs in some contexts
       "Cross-Origin-Embedder-Policy": "require-corp",
