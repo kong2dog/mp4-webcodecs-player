@@ -219,7 +219,7 @@
       <!-- Start Overlay -->
       <div
         v-if="!hasInteracted"
-        class="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm cursor-pointer"
+        class="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm cursor-pointer pointer-events-auto"
         @click="startExperience"
       >
         <div class="text-center">
