@@ -139,8 +139,26 @@ export function usePlayer(canvasRef) {
     }
 
     if (frameToRender) {
-      drawFrame(frameToRender);
-      frameToRender.close();
+      // 检查帧的时效性
+      // 如果帧的时间戳比当前音频时间落后太多 (例如 > 0.5s)，说明这是“赶进度”的旧帧
+      // 或者是浏览器后台切换回前台时，Worker 正在疯狂补发积压的帧
+      // 为了避免视觉上的“快进”效果（Benny Hill Effect），我们直接丢弃这些旧帧不渲染
+      // 保持画面静止在上一帧，直到追上进度
+      const frameTime = frameToRender.timestamp / 1e6;
+      const lag = now - frameTime;
+
+      if (lag > 0.5) {
+        // 落后超过 500ms，丢弃不画
+        frameToRender.close();
+
+        // 优化：如果落后非常严重（例如 > 2秒），说明解码器完全跟不上了
+        // 或者是从长时间后台恢复。与其让解码器逐帧解码赶进度，不如直接 Seek 到当前时间
+        // 注意：频繁 Seek 可能会有副作用，所以需要节流
+        // 这里简单处理：如果积压严重，我们依赖丢帧追赶，因为 VideoDecoder 通常很快
+      } else {
+        drawFrame(frameToRender);
+        frameToRender.close();
+      }
     }
 
     animationFrameId = requestAnimationFrame(renderLoop);
